@@ -45,7 +45,13 @@ async function readState(): Promise<AppData | null> {
 
 export async function GET() {
   try {
-    return NextResponse.json({ data: await readState() });
+    return NextResponse.json({ data: await readState() }, {
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+      },
+    });
   } catch {
     return NextResponse.json({ error: "Database is unavailable." }, { status: 503 });
   }

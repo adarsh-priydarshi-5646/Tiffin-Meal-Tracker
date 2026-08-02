@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   addMonths,
   eachDayOfInterval,
@@ -31,6 +32,7 @@ import {
   ImagePlus,
   LayoutDashboard,
   Leaf,
+  LogOut,
   Moon,
   PencilLine,
   Plus,
@@ -140,6 +142,7 @@ function MealPill({ meal }: { meal: MealType }) {
 }
 
 export default function TiffinTracker() {
+  const router = useRouter();
   const [data, setData] = useState<AppData>(() => cloneData(defaultData));
   const [ready, setReady] = useState(false);
   const [cloudStatus, setCloudStatus] = useState<"checking" | "connected" | "local">("checking");
@@ -147,6 +150,7 @@ export default function TiffinTracker() {
   const [activeMonth, setActiveMonth] = useState("2026-08");
   const [calendarMonth, setCalendarMonth] = useState("2026-08");
   const [darkMode, setDarkMode] = useState(false);
+  const [isClient, setIsClient] = useState(false);
   const [modalDate, setModalDate] = useState<string | null>(null);
   const [draft, setDraft] = useState<MealDraft>({});
   const [draftNote, setDraftNote] = useState("");
@@ -174,8 +178,12 @@ export default function TiffinTracker() {
     }
     setData(localData);
 
-    void fetch("/api/state", { cache: "no-store" })
+    void fetch(`/api/state?_t=${Date.now()}`, { cache: "no-store" })
       .then(async (response) => {
+        if (response.status === 401) {
+          router.push("/login");
+          return;
+        }
         if (!response.ok) throw new Error("Cloud storage is unavailable");
         const payload = await response.json() as { data?: AppData | null };
         if (!cancelled && payload.data) setData(normalizeAppData(payload.data));
@@ -188,6 +196,7 @@ export default function TiffinTracker() {
   }, []);
 
   useEffect(() => {
+    setIsClient(true);
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined);
   }, []);
 
@@ -211,6 +220,10 @@ export default function TiffinTracker() {
         body: JSON.stringify({ data }),
         signal: controller.signal,
       }).then((response) => {
+        if (response.status === 401) {
+          router.push("/login");
+          return;
+        }
         if (!response.ok) setCloudStatus("local");
         else setCloudStatus("connected");
       }).catch(() => { if (!controller.signal.aborted) setCloudStatus("local"); });
@@ -229,7 +242,7 @@ export default function TiffinTracker() {
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
-  const currentDate = new Date();
+  const currentDate = isClient ? new Date() : new Date("2026-08-01T12:00:00");
   const todayKey = isInRange(dateKey(currentDate), data) ? dateKey(currentDate) : data.settings.startDate;
   const months = useMemo(
     () => eachMonthOfInterval({ start: dateFromKey(data.settings.startDate), end: dateFromKey(data.settings.endDate) }).map(dateKey).map((key) => key.slice(0, 7)),
@@ -488,9 +501,9 @@ export default function TiffinTracker() {
                 </div>
               )}
               {tab === "bill" && <BillView data={data} month={activeMonth} months={months} monthName={monthName} stats={monthStats} rows={billRows} payment={currentPayment} onMonth={setActiveMonth} onPayment={openPayment} onCsv={exportCsv} onExcel={exportExcel} onPdf={exportPdf} />}
-              {tab === "analytics" && <AnalyticsView data={data} months={months} />}
+              {tab === "analytics" && <AnalyticsView data={data} months={months} currentDate={currentDate} />}
               {tab === "history" && <HistoryView data={data} rows={historyRows} search={historySearch} person={historyPerson} meal={historyMeal} date={historyDate} onSearch={setHistorySearch} onPerson={setHistoryPerson} onMeal={setHistoryMeal} onDate={setHistoryDate} />}
-              {tab === "settings" && <SettingsView data={data} newPerson={newPerson} onNewPerson={setNewPerson} onAddPerson={addPerson} onRemovePerson={removePerson} onUpdatePerson={updatePerson} onSettings={updateSettings} />}
+              {tab === "settings" && <SettingsView data={data} newPerson={newPerson} onNewPerson={setNewPerson} onAddPerson={addPerson} onRemovePerson={removePerson} onUpdatePerson={updatePerson} onSettings={updateSettings} router={router} />}
             </motion.div>
           </AnimatePresence>
         </section>
@@ -560,14 +573,14 @@ function BillView({ data, month, months, monthName, stats, rows, payment, onMont
   </div>;
 }
 
-function AnalyticsView({ data, months }: { data: AppData; months: string[] }) {
+function AnalyticsView({ data, months, currentDate }: { data: AppData; months: string[]; currentDate: Date }) {
   const monthly = months.map((month) => ({ month, stats: calculateStats(data.entries, data.settings, undefined, month) }));
   const maxSpend = Math.max(1, ...monthly.map((item) => item.stats.total));
   const allStats = calculateStats(data.entries, data.settings);
   const vegPercent = allStats.meals ? Math.round((allStats.veg / allStats.meals) * 100) : 50;
   const people = data.people.map((person) => ({ person, stats: calculateStats(data.entries, data.settings, person.id) }));
   const maxPeople = Math.max(1, ...people.map((item) => item.stats.meals));
-  const trendEnd = data.settings.endDate < dateKey(new Date()) ? dateFromKey(data.settings.endDate) : dateFromKey(data.settings.startDate > dateKey(new Date()) ? data.settings.startDate : dateKey(new Date()));
+  const trendEnd = data.settings.endDate < dateKey(currentDate) ? dateFromKey(data.settings.endDate) : dateFromKey(data.settings.startDate > dateKey(currentDate) ? data.settings.startDate : dateKey(currentDate));
   const trendDays = eachDayOfInterval({ start: subDays(trendEnd, 6), end: trendEnd }).filter((day) => isInRange(dateKey(day), data));
   return <div className="analytics-grid">
     <section className="panel"><div className="panel-header"><div><h2 className="panel-title">Monthly spending</h2><p className="panel-subtitle">A simple, honest view of every month in the meal period.</p></div><span className="amount">{money(allStats.total, data.settings.currency)} total</span></div><div className="chart-box">{monthly.map(({ month, stats }) => <div className="bar-group" key={month}><div className="bar" style={{ height: `${Math.max(3, (stats.total / maxSpend) * 100)}%` }} title={`${format(parseISO(`${month}-01`), "MMMM")}: ${money(stats.total, data.settings.currency)}`} /><div className="bar-label">{format(parseISO(`${month}-01`), "MMM")}</div></div>)}</div></section>
@@ -584,10 +597,15 @@ function HistoryView({ data, rows, search, person, meal, date, onSearch, onPerso
   return <section className="panel"><div className="panel-header"><div><h2 className="panel-title">Audit-proof history</h2><p className="panel-subtitle">Every meal record includes when it changed, who changed it and the device time.</p></div><span className="brand-caption">{data.history.length} events</span></div><div className="history-toolbar"><div style={{ position: "relative" }}><Search size={15} style={{ position: "absolute", left: 11, top: 12, color: "var(--ink-muted)" }} /><input className="field" style={{ paddingLeft: 33 }} placeholder="Search date, person or editor" value={search} onChange={(event) => onSearch(event.target.value)} /></div><select className="select" value={person} onChange={(event) => onPerson(event.target.value)}><option value="all">All people</option>{data.people.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><select className="select" value={meal} onChange={(event) => onMeal(event.target.value)}><option value="all">All meals</option><option value="veg">Veg</option><option value="nonveg">Non Veg</option><option value="none">No meal</option></select><input className="field" type="date" value={date} onChange={(event) => onDate(event.target.value)} /></div>{rows.length ? <div className="history-list">{rows.map((item) => <div className="history-row" key={item.id}><div className="history-icon">{item.meal === "photo" ? <ImagePlus size={15} /> : item.meal === "note" ? <PencilLine size={15} /> : <ClipboardCheck size={15} />}</div><div className="history-main"><strong>{prettyDate(item.date)} · {item.personName}</strong><span>{item.period === "day" ? "Day evidence" : periodLabels[item.period]} · {item.meal === "note" ? "Note updated" : item.meal === "photo" ? "Photo proof attached" : mealLabels[item.meal]} · {item.action}</span></div>{item.meal === "note" || item.meal === "photo" ? <span className="meal-pill none">Evidence</span> : <MealPill meal={item.meal} />}<div className="history-time">{format(parseISO(item.savedAt), "d MMM · h:mm a")}<br />by {item.editedBy}</div></div>)}</div> : <EmptyState icon={<History size={25} />} title="No matching proof records" text="Try a different filter, or record a meal from the calendar to begin the audit trail." />}</section>;
 }
 
-function SettingsView({ data, newPerson, onNewPerson, onAddPerson, onRemovePerson, onUpdatePerson, onSettings }: {
-  data: AppData; newPerson: string; onNewPerson: (value: string) => void; onAddPerson: () => void; onRemovePerson: (id: string) => void; onUpdatePerson: (id: string, name: string) => void; onSettings: (settings: Partial<AppData["settings"]>) => void;
+function SettingsView({ data, newPerson, onNewPerson, onAddPerson, onRemovePerson, onUpdatePerson, onSettings, router }: {
+  data: AppData; newPerson: string; onNewPerson: (value: string) => void; onAddPerson: () => void; onRemovePerson: (id: string) => void; onUpdatePerson: (id: string, name: string) => void; onSettings: (settings: Partial<AppData["settings"]>) => void; router: ReturnType<typeof useRouter>;
 }) {
-  return <div className="settings-layout"><section className="panel"><div className="panel-header"><div><h2 className="panel-title">Meal setup</h2><p className="panel-subtitle">These are live settings; all new bills update immediately.</p></div></div><div className="form-grid"><div className="form-control"><label htmlFor="veg-price">Veg meal price</label><input id="veg-price" className="field" type="number" min="0" value={data.settings.vegPrice} onChange={(event) => onSettings({ vegPrice: Math.max(0, Number(event.target.value)) })} /></div><div className="form-control"><label htmlFor="nonveg-price">Non Veg meal price</label><input id="nonveg-price" className="field" type="number" min="0" value={data.settings.nonVegPrice} onChange={(event) => onSettings({ nonVegPrice: Math.max(0, Number(event.target.value)) })} /></div><div className="form-control"><label htmlFor="currency">Currency</label><select id="currency" className="select" value={data.settings.currency} onChange={(event) => onSettings({ currency: event.target.value })}><option value="₹">₹ Indian Rupee</option><option value="$">$ US Dollar</option><option value="€">€ Euro</option></select></div><div className="form-control"><label htmlFor="editor">Default editor</label><input id="editor" className="field" value={data.settings.editor} onChange={(event) => onSettings({ editor: event.target.value })} /></div><div className="form-control"><label htmlFor="period-start">Meal period starts</label><input id="period-start" className="field" type="date" value={data.settings.startDate} onChange={(event) => onSettings({ startDate: event.target.value })} /></div><div className="form-control"><label htmlFor="period-end">Meal period ends</label><input id="period-end" className="field" type="date" value={data.settings.endDate} onChange={(event) => onSettings({ endDate: event.target.value })} /></div></div><div className="settings-note" style={{ marginTop: 17 }}>Your changes are automatically saved on this device. The proof log retains the editor recorded at the time of every action.</div></section><section className="stack"><section className="panel"><div className="panel-header"><div><h2 className="panel-title">People</h2><p className="panel-subtitle">Each person gets their own meal count and bill.</p></div></div><div className="people-list">{data.people.map((person) => <div className="person-setting" key={person.id}><i className="color-dot" style={{ background: person.color }} /><input className="field" aria-label={`${person.name} name`} value={person.name} onChange={(event) => onUpdatePerson(person.id, event.target.value)} /><button aria-label={`Remove ${person.name}`} onClick={() => onRemovePerson(person.id)}><Trash2 size={15} /></button></div>)}</div><div style={{ display: "flex", gap: 8, marginTop: 10 }}><input className="field" placeholder="Add a person" value={newPerson} onChange={(event) => onNewPerson(event.target.value)} onKeyDown={(event) => event.key === "Enter" && onAddPerson()} /><button className="button primary" onClick={onAddPerson}><Plus size={15} />Add</button></div></section><section className="panel"><div className="eyebrow">On this device</div><h2 className="panel-title" style={{ marginTop: 7 }}>Offline-ready by design</h2><p className="panel-subtitle" style={{ lineHeight: 1.5, marginTop: 8 }}>The tracker keeps an on-device copy of your orders, evidence and receipts. Install it from your browser menu for a focused mobile experience.</p></section></section></div>;
+  const handleLogout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+  };
+
+  return <div className="settings-layout"><section className="panel"><div className="panel-header"><div><h2 className="panel-title">Meal setup</h2><p className="panel-subtitle">These are live settings; all new bills update immediately.</p></div></div><div className="form-grid"><div className="form-control"><label htmlFor="veg-price">Veg meal price</label><input id="veg-price" className="field" type="number" min="0" value={data.settings.vegPrice} onChange={(event) => onSettings({ vegPrice: Math.max(0, Number(event.target.value)) })} /></div><div className="form-control"><label htmlFor="nonveg-price">Non Veg meal price</label><input id="nonveg-price" className="field" type="number" min="0" value={data.settings.nonVegPrice} onChange={(event) => onSettings({ nonVegPrice: Math.max(0, Number(event.target.value)) })} /></div><div className="form-control"><label htmlFor="currency">Currency</label><select id="currency" className="select" value={data.settings.currency} onChange={(event) => onSettings({ currency: event.target.value })}><option value="₹">₹ Indian Rupee</option><option value="$">$ US Dollar</option><option value="€">€ Euro</option></select></div><div className="form-control"><label htmlFor="editor">Default editor</label><input id="editor" className="field" value={data.settings.editor} onChange={(event) => onSettings({ editor: event.target.value })} /></div><div className="form-control"><label htmlFor="period-start">Meal period starts</label><input id="period-start" className="field" type="date" value={data.settings.startDate} onChange={(event) => onSettings({ startDate: event.target.value })} /></div><div className="form-control"><label htmlFor="period-end">Meal period ends</label><input id="period-end" className="field" type="date" value={data.settings.endDate} onChange={(event) => onSettings({ endDate: event.target.value })} /></div></div><div className="settings-note" style={{ marginTop: 17 }}>Your changes are automatically saved on this device. The proof log retains the editor recorded at the time of every action.</div></section><section className="stack"><section className="panel"><div className="panel-header"><div><h2 className="panel-title">People</h2><p className="panel-subtitle">Each person gets their own meal count and bill.</p></div></div><div className="people-list">{data.people.map((person) => <div className="person-setting" key={person.id}><i className="color-dot" style={{ background: person.color }} /><input className="field" aria-label={`${person.name} name`} value={person.name} onChange={(event) => onUpdatePerson(person.id, event.target.value)} /><button aria-label={`Remove ${person.name}`} onClick={() => onRemovePerson(person.id)}><Trash2 size={15} /></button></div>)}</div><div style={{ display: "flex", gap: 8, marginTop: 10 }}><input className="field" placeholder="Add a person" value={newPerson} onChange={(event) => onNewPerson(event.target.value)} onKeyDown={(event) => event.key === "Enter" && onAddPerson()} /><button className="button primary" onClick={onAddPerson}><Plus size={15} />Add</button></div></section><section className="panel"><div className="eyebrow">Admin Access</div><h2 className="panel-title" style={{ marginTop: 7 }}>Signed in securely</h2><p className="panel-subtitle" style={{ lineHeight: 1.5, marginTop: 8 }}>You are authenticated with a JWT token to access the dashboard and database.</p><button onClick={handleLogout} className="button" style={{ marginTop: 15, width: "100%", justifyContent: "center" }}><LogOut size={16} /> Sign out</button></section></section></div>;
 }
 
 function MealModal({ date, data, draft, note, image, onClose, onMeal, onNote, onImage, onRemoveImage, onSave }: {

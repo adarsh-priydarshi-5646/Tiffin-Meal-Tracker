@@ -9,6 +9,8 @@ export const metadata: Metadata = {
   appleWebApp: { capable: true, title: "Tiffin Tracker" },
 };
 
+import { Analytics } from "@vercel/analytics/next";
+
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" suppressHydrationWarning>
