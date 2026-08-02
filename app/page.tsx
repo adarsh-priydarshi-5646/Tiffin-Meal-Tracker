@@ -147,6 +147,7 @@ export default function TiffinTracker() {
   const [activeMonth, setActiveMonth] = useState("2026-08");
   const [calendarMonth, setCalendarMonth] = useState("2026-08");
   const [darkMode, setDarkMode] = useState(false);
+  const [isClient, setIsClient] = useState(false);
   const [modalDate, setModalDate] = useState<string | null>(null);
   const [draft, setDraft] = useState<MealDraft>({});
   const [draftNote, setDraftNote] = useState("");
@@ -188,6 +189,7 @@ export default function TiffinTracker() {
   }, []);
 
   useEffect(() => {
+    setIsClient(true);
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined);
   }, []);
 
@@ -229,7 +231,7 @@ export default function TiffinTracker() {
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
-  const currentDate = new Date();
+  const currentDate = isClient ? new Date() : new Date("2026-08-01T12:00:00");
   const todayKey = isInRange(dateKey(currentDate), data) ? dateKey(currentDate) : data.settings.startDate;
   const months = useMemo(
     () => eachMonthOfInterval({ start: dateFromKey(data.settings.startDate), end: dateFromKey(data.settings.endDate) }).map(dateKey).map((key) => key.slice(0, 7)),
@@ -488,7 +490,7 @@ export default function TiffinTracker() {
                 </div>
               )}
               {tab === "bill" && <BillView data={data} month={activeMonth} months={months} monthName={monthName} stats={monthStats} rows={billRows} payment={currentPayment} onMonth={setActiveMonth} onPayment={openPayment} onCsv={exportCsv} onExcel={exportExcel} onPdf={exportPdf} />}
-              {tab === "analytics" && <AnalyticsView data={data} months={months} />}
+              {tab === "analytics" && <AnalyticsView data={data} months={months} currentDate={currentDate} />}
               {tab === "history" && <HistoryView data={data} rows={historyRows} search={historySearch} person={historyPerson} meal={historyMeal} date={historyDate} onSearch={setHistorySearch} onPerson={setHistoryPerson} onMeal={setHistoryMeal} onDate={setHistoryDate} />}
               {tab === "settings" && <SettingsView data={data} newPerson={newPerson} onNewPerson={setNewPerson} onAddPerson={addPerson} onRemovePerson={removePerson} onUpdatePerson={updatePerson} onSettings={updateSettings} />}
             </motion.div>
@@ -560,14 +562,14 @@ function BillView({ data, month, months, monthName, stats, rows, payment, onMont
   </div>;
 }
 
-function AnalyticsView({ data, months }: { data: AppData; months: string[] }) {
+function AnalyticsView({ data, months, currentDate }: { data: AppData; months: string[]; currentDate: Date }) {
   const monthly = months.map((month) => ({ month, stats: calculateStats(data.entries, data.settings, undefined, month) }));
   const maxSpend = Math.max(1, ...monthly.map((item) => item.stats.total));
   const allStats = calculateStats(data.entries, data.settings);
   const vegPercent = allStats.meals ? Math.round((allStats.veg / allStats.meals) * 100) : 50;
   const people = data.people.map((person) => ({ person, stats: calculateStats(data.entries, data.settings, person.id) }));
   const maxPeople = Math.max(1, ...people.map((item) => item.stats.meals));
-  const trendEnd = data.settings.endDate < dateKey(new Date()) ? dateFromKey(data.settings.endDate) : dateFromKey(data.settings.startDate > dateKey(new Date()) ? data.settings.startDate : dateKey(new Date()));
+  const trendEnd = data.settings.endDate < dateKey(currentDate) ? dateFromKey(data.settings.endDate) : dateFromKey(data.settings.startDate > dateKey(currentDate) ? data.settings.startDate : dateKey(currentDate));
   const trendDays = eachDayOfInterval({ start: subDays(trendEnd, 6), end: trendEnd }).filter((day) => isInRange(dateKey(day), data));
   return <div className="analytics-grid">
     <section className="panel"><div className="panel-header"><div><h2 className="panel-title">Monthly spending</h2><p className="panel-subtitle">A simple, honest view of every month in the meal period.</p></div><span className="amount">{money(allStats.total, data.settings.currency)} total</span></div><div className="chart-box">{monthly.map(({ month, stats }) => <div className="bar-group" key={month}><div className="bar" style={{ height: `${Math.max(3, (stats.total / maxSpend) * 100)}%` }} title={`${format(parseISO(`${month}-01`), "MMMM")}: ${money(stats.total, data.settings.currency)}`} /><div className="bar-label">{format(parseISO(`${month}-01`), "MMM")}</div></div>)}</div></section>
