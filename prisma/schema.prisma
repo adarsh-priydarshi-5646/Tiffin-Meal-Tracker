@@ -1,0 +1,106 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model TrackerSettings {
+  id          String   @id @default("default")
+  vegPrice    Int
+  nonVegPrice Int
+  currency    String
+  startDate   String
+  endDate     String
+  editor      String
+  updatedAt   DateTime @updatedAt
+}
+
+model User {
+  id        String      @id
+  name      String
+  color     String
+  active    Boolean     @default(true)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  entries   MealEntry[]
+
+  @@index([active])
+}
+
+model MealEntry {
+  id         String   @id
+  date       String
+  personId   String
+  lunch      MealType @default(none)
+  dinner     MealType @default(none)
+  createdAt  DateTime
+  updatedAt  DateTime
+  editedBy   String
+  deviceTime String
+  person     User     @relation(fields: [personId], references: [id])
+
+  @@unique([date, personId])
+  @@index([date])
+}
+
+model DayDetail {
+  id        String   @id @default(cuid())
+  date      String   @unique
+  note      String   @default("")
+  imageData String?
+  updatedAt DateTime
+}
+
+model Payment {
+  id        String        @id
+  month     String        @unique
+  status    PaymentStatus @default(pending)
+  paidAt    DateTime?
+  amount    Int
+  mode      PaymentMode?
+  reference String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+}
+
+model History {
+  id          String        @id
+  date        String
+  personId    String
+  personName  String
+  period      String
+  meal        String
+  action      HistoryAction
+  savedAt     DateTime
+  deviceTime  String
+  editedBy    String
+
+  @@index([date])
+  @@index([personId])
+}
+
+enum MealType {
+  none
+  veg
+  nonveg
+}
+
+enum PaymentStatus {
+  pending
+  paid
+}
+
+enum PaymentMode {
+  Cash
+  UPI
+  Bank
+}
+
+enum HistoryAction {
+  saved
+  updated
+  reverted
+}
