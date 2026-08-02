@@ -174,7 +174,7 @@ export default function TiffinTracker() {
     }
     setData(localData);
 
-    void fetch("/api/state", { cache: "no-store" })
+    void fetch(`/api/state?_t=${Date.now()}`, { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error("Cloud storage is unavailable");
         const payload = await response.json() as { data?: AppData | null };
